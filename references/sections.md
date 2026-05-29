@@ -288,7 +288,7 @@ See SKILL.md "Permissions section format" — that section is the spec. Key remi
 <section id="rollout">
   <h2><span class="num">15</span> Rollout &amp; verification</h2>
   <ol class="steps">
-    <li><strong>Phase 1 — UI cleanup.</strong> Apply §10 edits, run unit tests, commit, push.</li>
+    <li><strong>Phase 1 — UI cleanup.</strong> Apply §10 edits, commit, push.</li>
     <li><strong>Phase 2 — Dashboard.</strong> Follow §11.</li>
     <li><strong>Phase 3 — Cypress.</strong> Create QA user, run spec, attach video.</li>
   </ol>
@@ -352,7 +352,7 @@ echo "URL=$NEXT_PUBLIC_SUPABASE_URL"</code></pre>
     <pre class="mermaid">
 flowchart TD
   P0["§17.1 preflight"] --> P1["Phase 1 — UI cleanup"]
-  P1 --> V1{"vitest pass?"}
+  P1 --> V1{"e2e spec pass?"}
   V1 -->|yes| C1["commit + push"]
   C1 --> Q{"google enabled?"}
   Q -->|no| H["⏸ hand off to user"]
@@ -366,8 +366,7 @@ flowchart TD
     <table>
       <thead><tr><th>Purpose</th><th>Command</th></tr></thead>
       <tbody>
-        <tr><td>Unit tests</td><td><code>npm run test</code></td></tr>
-        <tr><td>Cypress e2e</td><td><code>npm run test:e2e</code></td></tr>
+        <tr><td>Cypress e2e (the only test gate)</td><td><code>npm run test:e2e</code></td></tr>
         <tr><td>Probe Supabase</td><td><code>curl -s -H "apikey: $KEY" "$URL/auth/v1/settings"</code></td></tr>
       </tbody>
     </table>
@@ -376,9 +375,8 @@ flowchart TD
   <h3>17.4 Definition of done</h3>
   <ul class="checklist">
     <li><code>git diff --stat main</code> touches only the files in §9.</li>
-    <li><code>npm run lint &amp;&amp; npm run build &amp;&amp; npm run test</code> all green.</li>
     <li>Probe shows <code>external.google: true</code>.</li>
-    <li>Cypress 3/3 pass against prod.</li>
+    <li>Cypress 3/3 pass against prod (the only test gate).</li>
   </ul>
 
   <h3>17.5 Must-nots</h3>

@@ -53,13 +53,26 @@ Use the numbered `<span class="num">XX</span>` style for every section heading. 
 | — | Code changes (shape, not source) | Before/after Mermaid + a per-file pseudocode table |
 | — | Third-party dashboard steps | Only if external services (Google Cloud, Stripe, Supabase, etc.) need configuration |
 | — | Environment variables | Table; only the vars that change |
-| — | Test plan | Strategy Mermaid + pseudocode of test cases (NOT full source) |
+| — | Test plan | **End-to-end only by default** (Cypress / Playwright). Strategy Mermaid + pseudocode of cases. See "Tests: e2e by default" below. |
 | — | Claude permissions to add | Table + paste-ready JSON snippet for `permissions.allow` |
 | — | Rollout & verification | Phased; acceptance checklist as `<ul class="checklist">` |
 | — | Risk & rollback | Two-column `.grid.cols-2` cards |
 | Last | Agent runbook | Preflight commands, ordered execution Mermaid, commands cheat-sheet table, definition-of-done `<ul class="checklist">`, must-nots list |
 
 See `references/sections.md` for concrete examples of each.
+
+### Tests: e2e by default
+
+At scale, the test that actually catches regressions is the one that drives the app like a user does. Mocked unit tests pass in isolation and lie about integration. The design doc reflects this priority:
+
+- **Always include an end-to-end test plan.** Cypress or Playwright, whatever the repo already uses. Pseudocode the cases; the strategy diagram explains how they assert (intercept, network probe, DOM assertion).
+- **Do NOT add a unit-test plan, integration-test plan, or "expand existing mocks" task unless the user explicitly asks for one.** If existing unit tests would be broken by the change, the doc says "update broken unit tests" — not "add new ones".
+- **Definition of done references only the e2e suite.** Don't make `npm run test` (unit) a gate unless the user asked for it. Don't list `Bash(npm run test:*)` in permissions unless unit tests are explicitly in scope.
+- **Skip lint/build gates by default too** unless the project's pre-existing CI runs them — those are scaffolding, not signal.
+
+If the user asks for unit tests on top of e2e ("also add unit tests for the new helper", "extend the vitest suite"), add the unit plan as a separate subsection (e.g., 13.x) under the existing Test plan section. Don't replace the e2e content.
+
+The runbook's Definition-of-Done checklist should only reference the e2e spec passing. Commands cheat-sheet should list the e2e runner, plus `npm run lint`/`build` only if the user opted into them.
 
 ### The pseudocode rule
 
@@ -126,7 +139,7 @@ These tools are part of the base Claude Code permission set. Listing them is noi
 
 Walk §17.1 (preflight), §17.3 (commands cheat-sheet), and any embedded commands in §10/§13. For each:
 
-- **Every `Bash(…)` pattern.** Be specific: `Bash(npm run test:*)` over `Bash(npm run *)`; `Bash(npx cypress run:*)` over `Bash(npx *)`. The `*` is a glob — pick the smallest pattern that covers the runbook's commands.
+- **Every `Bash(…)` pattern.** Be specific: `Bash(npm run test:e2e:*)` over `Bash(npm run *)`; `Bash(npx cypress run:*)` over `Bash(npx *)`. The `*` is a glob — pick the smallest pattern that covers the runbook's commands. Don't list `Bash(npm run test:*)` (unit) unless the user explicitly opted into unit tests.
 - **Every WebFetch domain.** Format `WebFetch(domain:console.cloud.google.com)`. List the actual hostnames the runbook fetches.
 - **Every MCP tool the runbook calls.** Format `mcp__<server>__<tool>` if known; otherwise leave a placeholder and flag for the user.
 - **Every Skill invocation** that isn't this one (`Skill(skill-name)`).
@@ -149,8 +162,8 @@ A useful pass: copy every command from §17.1 and §17.3 into a scratch list. Fo
       <thead><tr><th>Permission</th><th>Why</th><th>Fires at</th></tr></thead>
       <tbody>
         <tr>
-          <td><code>Bash(npm run test:*)</code></td>
-          <td>Run the new unit + e2e suites</td>
+          <td><code>Bash(npm run test:e2e:*)</code></td>
+          <td>Run the Cypress / Playwright e2e suite</td>
           <td>§17.3, §17.4</td>
         </tr>
         ...
@@ -158,7 +171,7 @@ A useful pass: copy every command from §17.1 and §17.3 into a scratch list. Fo
     </table>
   </div>
   <pre><code>[
-  "Bash(npm run test:*)",
+  "Bash(npm run test:e2e:*)",
   "Bash(curl -s https://...)",
   "WebFetch(domain:example.com)"
 ]</code></pre>

@@ -74,7 +74,7 @@ Numbered consecutively starting at 01:
 7. Code changes (shape, not source)
 8. Third-party dashboard steps (if external services are involved)
 9. Environment variables
-10. Test plan (strategy diagram + pseudocode)
+10. Test plan — **end-to-end only by default** (Cypress / Playwright); strategy diagram + pseudocode. Unit and integration plans are added only when the user explicitly asks.
 11. Claude permissions to add
 12. Rollout & verification
 13. Risk & rollback

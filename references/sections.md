@@ -275,12 +275,13 @@ flowchart TD
 </section>
 ```
 
-## Permissions
+## Ask-gates
 
-See SKILL.md "Permissions section format" — that section is the spec. Key reminders:
-- Three-column table (Permission / Why / Fires at).
-- Followed by a `<pre><code>[...]</code></pre>` with JUST the JSON array.
-- Don't list Edit/Read/Write/Glob/Grep — already allowed.
+See SKILL.md "Ask-gates section format" — that section is the spec. Key reminders:
+- Three-column table (Ask pattern / Risk if unattended / Fires at).
+- Followed by a `<pre><code>[...]</code></pre>` with JUST the JSON array (merged into `permissions.ask`).
+- Gate consequence, not activity: pushes, prod deploys, db mutations, money, secrets. Never tests/builds/read probes.
+- More than ~8 entries means you're gating noise — cut it down.
 
 ## Rollout & verification
 

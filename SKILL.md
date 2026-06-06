@@ -1,14 +1,14 @@
 ---
 name: design-and-ship
-description: Author a rich, mobile-responsive HTML design doc for a code change, get the user's sign-off, apply the permissions the doc says you'll need, isolate the work in a git worktree, execute the change step by step against the doc, then append a "Roadblocks & deviations" recap to the same HTML file. Trigger on requests for a design doc, technical spec, RFC, implementation plan, architecture sketch, or runbook before shipping a non-trivial change — even when the user doesn't say "design doc" but says things like "plan this", "spec it out", "write up how we'd do X", "design a doc for X then ship it", "make a plan with diagrams", or asks for a doc with architecture diagrams, an agent runbook, or a Cypress test plan. Also use whenever a task is large enough that the user would benefit from sign-off before code starts and a recap after it lands.
+description: Author a rich, mobile-responsive HTML design doc for a code change, get the user's sign-off, merge the doc's predicted ask-gates (commands risky enough to confirm) into the permission config, isolate the work in a git worktree, execute the change step by step against the doc, then append a "Roadblocks & deviations" recap to the same HTML file. Trigger on requests for a design doc, technical spec, RFC, implementation plan, architecture sketch, or runbook before shipping a non-trivial change — even when the user doesn't say "design doc" but says things like "plan this", "spec it out", "write up how we'd do X", "design a doc for X then ship it", "make a plan with diagrams", or asks for a doc with architecture diagrams, an agent runbook, or a Cypress test plan. Also use whenever a task is large enough that the user would benefit from sign-off before code starts and a recap after it lands.
 ---
 
 # Design and Ship
 
 A three-phase workflow for non-trivial changes:
 
-1. **Design** — author a self-contained HTML design doc with diagrams, pseudocode (not full source), the permissions you'll need, and an agent runbook
-2. **Ship** — after user sign-off, merge the permissions into `~/.claude/settings.json`, enter a git worktree, execute the doc
+1. **Design** — author a self-contained HTML design doc with diagrams, pseudocode (not full source), the ask-gates (commands risky enough to confirm before running), and an agent runbook
+2. **Ship** — after user sign-off, merge the ask-gates into `~/.claude/settings.json → permissions.ask`, enter a git worktree, execute the doc
 3. **Recap** — append a "Roadblocks & deviations" section to the same doc, recording what actually happened
 
 The reason for this shape: design docs that go stale during implementation are worse than no doc. By writing the recap into the same file, the doc stays accurate, the user gets a paper trail of decisions, and future work has a starting reference that matches reality.
@@ -54,7 +54,7 @@ Use the numbered `<span class="num">XX</span>` style for every section heading. 
 | — | Third-party dashboard steps | Only if external services (Google Cloud, Stripe, Supabase, etc.) need configuration |
 | — | Environment variables | Table; only the vars that change |
 | — | Test plan | **End-to-end only by default** (Cypress / Playwright). Strategy Mermaid + pseudocode of cases. See "Tests: e2e by default" below. |
-| — | Claude permissions to add | Table + paste-ready JSON snippet for `permissions.allow` |
+| — | Commands that will ask first | Table + paste-ready JSON snippet for `permissions.ask` |
 | — | Rollout & verification | Phased; acceptance checklist as `<ul class="checklist">` |
 | — | Risk & rollback | Two-column `.grid.cols-2` cards |
 | Last | Agent runbook | Preflight commands, ordered execution Mermaid, commands cheat-sheet table, definition-of-done `<ul class="checklist">`, must-nots list |
@@ -67,7 +67,7 @@ At scale, the test that actually catches regressions is the one that drives the 
 
 - **Always include an end-to-end test plan.** Cypress or Playwright, whatever the repo already uses. Pseudocode the cases; the strategy diagram explains how they assert (intercept, network probe, DOM assertion).
 - **Do NOT add a unit-test plan, integration-test plan, or "expand existing mocks" task unless the user explicitly asks for one.** If existing unit tests would be broken by the change, the doc says "update broken unit tests" — not "add new ones".
-- **Definition of done references only the e2e suite.** Don't make `npm run test` (unit) a gate unless the user asked for it. Don't list `Bash(npm run test:*)` in permissions unless unit tests are explicitly in scope.
+- **Definition of done references only the e2e suite.** Don't make `npm run test` (unit) a gate unless the user asked for it.
 - **Skip lint/build gates by default too** unless the project's pre-existing CI runs them — those are scaffolding, not signal.
 
 If the user asks for unit tests on top of e2e ("also add unit tests for the new helper", "extend the vitest suite"), add the unit plan as a separate subsection (e.g., 13.x) under the existing Test plan section. Don't replace the e2e content.
@@ -115,70 +115,67 @@ for tag in ['section','aside','main','div','nav','pre','table','script','style']
     if o != c: print(f'WARN {tag} open={o} close={c}')
 ```
 
-### Permissions section format
+### Ask-gates section format
 
-This section is doing real work — it's both the user's audit trail and the literal payload Phase 2 will merge into `~/.claude/settings.json`. Get this right and the user clicks "approve" once at sign-off; get it wrong and they have to keep hitting "yes" mid-execution.
+This section is doing real work — it's both the user's audit trail and the literal payload Phase 2 will merge into `~/.claude/settings.json → permissions.ask`. The session runs in auto mode: commands execute without confirmation by default. So the job is inverted from a classic allowlist — instead of enumerating everything the runbook will fire, **predict the small set of commands consequential enough that the user should still be asked**, and gate exactly those. Get this right and execution flows freely while the user is pulled in only at the moments that genuinely deserve a human pause; get it wrong and either something irreversible runs silently, or the user gets nagged for routine work.
 
 #### The principle
 
-**Least privilege, but comprehensive.** Every Bash command, WebFetch URL, MCP tool, or Skill invocation the runbook (§17) is going to fire must appear in the list — narrowly scoped — so execution flows without confirmation prompts. List too little and you'll interrupt the user for every blocked tool call. List too much and the user can't reasonably audit what they're authorizing.
+**Gate consequence, not activity.** Walk the runbook (§17) and any embedded commands in §10/§13 and ask of each command: "if this ran while the user was looking away, could it cost something that can't be cheaply undone?" If yes, it gets an `ask` pattern. If no — builds, tests, greps, local file ops, read-only probes — it does NOT appear in this section at all. A short, sharp ask list is the goal; a long one means you're gating noise.
 
-#### What is ALREADY allowed by default — never list these
+#### What MUST be gated — predict from the runbook
 
-These tools are part of the base Claude Code permission set. Listing them is noise that distracts the user from what they're actually authorizing:
+Categories that warrant an `ask` entry whenever the runbook touches them:
 
-- `Edit`, `Write`, `Read`, `Glob`, `Grep`, `NotebookEdit`
-- `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`, `TaskStop`, `TaskOutput`, `Monitor`
-- `EnterPlanMode`, `ExitPlanMode`, `EnterWorktree`, `ExitWorktree`
-- `AskUserQuestion`, `ScheduleWakeup`
-- The bare `Bash` tool (without a pattern) — note: bare `Bash` is NOT default-allowed; what's default-allowed is the user already having a permission mode set. If the user is in "accept edits" mode for example, Read/Edit/Write don't need authorization. Don't list them regardless.
+- **Irreversible / destructive:** `rm -rf` outside the worktree, `git push --force*`, `git reset --hard` on shared branches, dropping or truncating database tables, deleting cloud resources.
+- **Outward-facing / publishing:** `git push` to a shared remote, production deploys (`vercel deploy --prod`, `vercel --prod`), `npm publish`, sending email/notifications, creating public URLs.
+- **Mutating third-party state:** writes via cloud CLIs (`gcloud`, `supabase db push`, `stripe`, `gh pr merge`), MCP tools that create/update/delete remote objects (`mcp__<server>__<tool>` form), applying migrations against a live database.
+- **Money / quota:** provisioning paid resources, plan changes, anything that bills.
+- **Secrets:** writing env vars to a remote (`vercel env add`), rotating keys, commands that would echo credentials.
 
-**Rule of thumb:** if it's a generic file-system tool, don't list it. List only the specific external commands, URL fetches, and MCP tool calls the runbook will trigger.
+Be specific with patterns, same as ever: `Bash(git push:*)` over `Bash(git *)`; `Bash(vercel --prod:*)` over `Bash(vercel:*)`. The `*` is a glob — pick the smallest pattern that covers the risky command without catching its harmless siblings (gating `Bash(supabase db push:*)` must not also catch `supabase db diff`).
 
-#### What MUST be listed
+#### What must NOT be gated
 
-Walk §17.1 (preflight), §17.3 (commands cheat-sheet), and any embedded commands in §10/§13. For each:
-
-- **Every `Bash(…)` pattern.** Be specific: `Bash(npm run test:e2e:*)` over `Bash(npm run *)`; `Bash(npx cypress run:*)` over `Bash(npx *)`. The `*` is a glob — pick the smallest pattern that covers the runbook's commands. Don't list `Bash(npm run test:*)` (unit) unless the user explicitly opted into unit tests.
-- **Every WebFetch domain.** Format `WebFetch(domain:console.cloud.google.com)`. List the actual hostnames the runbook fetches.
-- **Every MCP tool the runbook calls.** Format `mcp__<server>__<tool>` if known; otherwise leave a placeholder and flag for the user.
-- **Every Skill invocation** that isn't this one (`Skill(skill-name)`).
-- **Specific URL probes** that aren't general WebFetch — e.g., `Bash(curl -s https://*.supabase.co/auth/v1/settings*)` when the runbook curls a known endpoint.
+Everything routine the runbook fires — test runners, linters, builds, `curl` read probes, `git status/diff/log/commit` inside the worktree, file-system tools (`Edit`, `Read`, `Write`, `Glob`, `Grep`), task tools. Listing these defeats the point of auto mode and buries the real gates in noise. If the section has more than ~8 entries, re-read it: you're probably gating activity instead of consequence.
 
 #### Auditing comprehensively (do this before signing off)
 
-Re-read §17 with a grep mindset. For every backticked command, ask: "is the pattern for this already in the permissions list?" If not, add it. This is the single highest-leverage check for keeping the user out of the confirmation loop.
-
-A useful pass: copy every command from §17.1 and §17.3 into a scratch list. For each, write the minimum pattern that matches. Sort, dedupe, that's your `permissions.allow` array.
+Re-read §17 with a red-team mindset. For every backticked command, ask: "what's the worst plausible outcome if this runs unattended?" Anything whose answer involves prod, money, a shared remote, or data loss gets a pattern. Then do the inverse pass: for every entry in the list, name the runbook step that fires it ("Fires at") — an ask entry no step triggers is dead weight; cut it. Sort, dedupe, that's your `permissions.ask` array.
 
 #### HTML format
 
 ```html
 <section id="permissions">
-  <h2><span class="num">14</span> Claude permissions to add</h2>
-  <p>The work in this doc needs these capabilities. <code>Edit</code>, <code>Read</code>, <code>Write</code>, <code>Glob</code>, <code>Grep</code>, and task tools are already allowed — only Bash patterns, WebFetch domains, and MCP tools are listed below. Paste-ready snippet for <code>~/.claude/settings.json → permissions.allow</code>:</p>
+  <h2><span class="num">14</span> Commands that will ask first</h2>
+  <p>The session runs in auto mode — everything else in the runbook executes without prompts. These commands are consequential enough that Claude will pause and ask before running them. Paste-ready snippet for <code>~/.claude/settings.json → permissions.ask</code>:</p>
   <div class="scroll">
     <table>
-      <thead><tr><th>Permission</th><th>Why</th><th>Fires at</th></tr></thead>
+      <thead><tr><th>Ask pattern</th><th>Risk if unattended</th><th>Fires at</th></tr></thead>
       <tbody>
         <tr>
-          <td><code>Bash(npm run test:e2e:*)</code></td>
-          <td>Run the Cypress / Playwright e2e suite</td>
-          <td>§17.3, §17.4</td>
+          <td><code>Bash(git push:*)</code></td>
+          <td>Publishes the branch to the shared remote</td>
+          <td>§17.3 step 6</td>
+        </tr>
+        <tr>
+          <td><code>Bash(vercel --prod:*)</code></td>
+          <td>Production deploy — user-visible immediately</td>
+          <td>§17.4</td>
         </tr>
         ...
       </tbody>
     </table>
   </div>
   <pre><code>[
-  "Bash(npm run test:e2e:*)",
-  "Bash(curl -s https://...)",
-  "WebFetch(domain:example.com)"
+  "Bash(git push:*)",
+  "Bash(vercel --prod:*)",
+  "Bash(supabase db push:*)"
 ]</code></pre>
 </section>
 ```
 
-The third column ("Fires at") maps each permission to the runbook step that needs it — that's how you prove the audit is complete. The JSON inside `<pre><code>` is what Phase 2 parses; keep it as a valid JSON array with no comments.
+The second column states the concrete risk — that's what the user is actually auditing. The third column ("Fires at") maps each gate to the runbook step that triggers it, proving nothing in the list is dead weight. The JSON inside `<pre><code>` is what Phase 2 parses; keep it as a valid JSON array with no comments.
 
 ### Agent runbook section format
 
@@ -192,13 +189,13 @@ This is the most important section. It's the part that lets a fresh agent execut
 
 ---
 
-## Phase 2 — Approve & apply permissions
+## Phase 2 — Approve & apply ask-gates
 
-When the user approves the doc, apply the permissions in a single deterministic step. Don't ask the user to paste anything — the script below reads the JSON array directly out of the design doc you just wrote, so there's no copy-paste error path.
+When the user approves the doc, apply the ask-gates in a single deterministic step. Don't ask the user to paste anything — the script below reads the JSON array directly out of the design doc you just wrote, so there's no copy-paste error path.
 
 ### The merge
 
-`jq` cannot dedupe arrays without `--slurp` gymnastics, so use Python. This one command reads the doc, finds the permissions section, parses the JSON, and merges into `~/.claude/settings.json` — preserving all other keys (hooks, env, theme, enabledPlugins, etc.). Substitute `DOC_PATH` for the actual design doc path you wrote in Phase 1:
+`jq` cannot dedupe arrays without `--slurp` gymnastics, so use Python. This one command reads the doc, finds the permissions section, parses the JSON, and merges into `~/.claude/settings.json → permissions.ask` — preserving all other keys (hooks, env, theme, enabledPlugins, etc.). Substitute `DOC_PATH` for the actual design doc path you wrote in Phase 1:
 
 ```bash
 python3 - <<'PY'
@@ -223,14 +220,15 @@ if not isinstance(new, list) or not all(isinstance(x, str) for x in new):
     sys.exit("ERROR: permissions block must be a flat array of strings")
 
 cfg = json.loads(SETTINGS.read_text()) if SETTINGS.exists() else {}
-allow = cfg.setdefault("permissions", {}).setdefault("allow", [])
-before = set(allow)
+perms = cfg.setdefault("permissions", {})
+ask = perms.setdefault("ask", [])
+before = set(ask)
 added = [x for x in new if x not in before]
-allow.extend(added)
+ask.extend(added)
 SETTINGS.write_text(json.dumps(cfg, indent=2) + "\n")
 
 print(f"Settings: {SETTINGS}")
-print(f"Added ({len(added)}):")
+print(f"Added to ask ({len(added)}):")
 for x in added: print("  +", x)
 skipped = [x for x in new if x in before]
 if skipped:
@@ -241,17 +239,20 @@ PY
 
 ### Verifying the merge took effect
 
-After the merge, the user is NOT prompted for any new tool call whose pattern is now in the list — but the agent should still sanity-check by:
+After the merge, any tool call matching an `ask` pattern WILL prompt the user — that's the point. Rules evaluate deny → ask → allow, first match wins, so an ask entry holds even if the same pattern also appears in `permissions.allow`. Sanity-check by:
 
-1. Reading `~/.claude/settings.json` back and confirming every entry from the doc is present in `permissions.allow`.
-2. Running one of the granted commands as a smoke test (e.g., the §17.1 preflight probe). If that command still triggers a confirmation prompt, the pattern is wrong — narrow or broaden it and re-merge.
+1. Reading `~/.claude/settings.json` back and confirming every entry from the doc is present in `permissions.ask`.
+2. Do NOT smoke-test a gated command — that fires a real prompt (or worse, the real side effect) just to test plumbing. The settings read-back is the verification.
+
+One known hole: if Bash sandboxing is enabled with `autoAllowBashIfSandboxed` (the default when sandboxing is on), sandboxed Bash commands skip ask prompts — the sandbox boundary substitutes for them. If the project uses sandboxing, say so to the user at sign-off: the gates then rely on the agent honoring them behaviorally (see Safety rules), not on the harness prompting.
 
 ### Safety rules
 
-- Never edit `permissions.allow` outside of this script — manual edits drift from what the doc says, and the recap in Phase 4 won't be honest.
-- Never apply permissions before the user approves the doc. The doc is the audit artifact; running this step is the consent signal.
-- Never use `permissions.deny` or `permissions.ask` from this skill — those are user-managed.
-- Do not list `Edit`, `Read`, `Write`, `Glob`, `Grep`, or generic `Bash` in the array. They're either already allowed or so broad that listing them defeats audit.
+- Never edit `permissions.ask` outside of this script — manual edits drift from what the doc says, and the recap in Phase 4 won't be honest.
+- Never apply the gates before the user approves the doc. The doc is the audit artifact; running this step is the consent signal.
+- Never write to `permissions.allow` or `permissions.deny` from this skill — those are user-managed.
+- Do not gate `Edit`, `Read`, `Write`, `Glob`, `Grep`, or bare `Bash` — gating generic file-system tools or all of Bash defeats auto mode entirely.
+- When a gated command comes up during Phase 3, present it and wait. Never reword or restructure a command so it slips past its own ask pattern.
 
 ---
 
@@ -283,7 +284,8 @@ Stop and ask the user before continuing if:
 
 - The deviation is bigger than the doc's scope (would require revisiting Phase 1)
 - A third-party dashboard step requires their account / consent
-- A permission you need isn't in the approved snippet — never silently grant yourself more
+- A command matches one of the doc's ask-gates — the prompt is the hand-back; never reword a command to dodge its gate
+- You're about to run something consequential (prod, money, shared remote, data loss) that the doc failed to gate — treat it as gated anyway and ask; the missing pattern goes in the deviation log
 - A "must-not" from §17.5 would be violated by the path forward
 
 ---
@@ -332,7 +334,7 @@ Run the tag balance check again. Append-only edits to an HTML file have a way of
 ## What this skill does NOT do
 
 - Does not write the design doc autonomously without first scanning the codebase. Every claim is grounded.
-- Does not apply permissions to `settings.json` before the user approves the doc.
+- Does not apply ask-gates to `settings.json` before the user approves the doc.
 - Does not skip the worktree.
 - Does not silently expand scope mid-execution.
 - Does not consider the work done until the recap section is in place.

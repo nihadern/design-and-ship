@@ -15,8 +15,8 @@ Four phases, executed by Claude when the skill triggers:
 
 | Phase | What happens |
 |---|---|
-| 1. Design | Generates a self-contained, mobile-responsive HTML doc with Mermaid diagrams, a per-file pseudocode table, a permissions list, and an agent runbook. |
-| 2. Approve + apply | After user sign-off, merges the permissions array from the doc directly into `~/.claude/settings.json`. |
+| 1. Design | Generates a self-contained, mobile-responsive HTML doc with Mermaid diagrams, a per-file pseudocode table, a predicted list of ask-gates (commands risky enough to confirm before running), and an agent runbook. |
+| 2. Approve + apply | After user sign-off, merges the ask-gates array from the doc directly into `~/.claude/settings.json → permissions.ask`. |
 | 3. Worktree + execute | Calls `EnterWorktree` to isolate, then walks the runbook step by step. Keeps a deviation log as it goes. |
 | 4. Recap | Appends a "Roadblocks & deviations" section to the same HTML file (planned vs actual, surprises, doc patches). |
 
@@ -58,7 +58,7 @@ design-and-ship/
 - **Pseudocode, not source.** The doc shows the *shape* of the change. Real source goes in the files during execution.
 - **One Mermaid block per concept.** Diagrams render in light and dark themes; no hard-coded colors.
 - **Verified claims only.** Every file path, line number, env var, and API endpoint cited in the doc must be confirmed against the actual repo or live service before the doc lands.
-- **Least-privilege permissions, but comprehensive.** Default-allowed tools (`Edit`, `Read`, `Write`, `Glob`, `Grep`, etc.) are never listed. Every `Bash` / `WebFetch` / MCP call the runbook will fire is listed with a narrow pattern so execution doesn't trigger confirmation prompts.
+- **Gate consequence, not activity.** Built for auto mode: routine commands (tests, builds, read probes) run without prompts. The doc predicts the few commands that genuinely deserve a human pause — pushes, prod deploys, db mutations, money, secrets — and gates exactly those via `permissions.ask`, each with a narrow pattern and a stated risk.
 - **Honest recap.** Phase 4 records what didn't work, what changed, and what patches the doc itself needs for next time.
 
 ## Required sections in the generated doc
@@ -75,7 +75,7 @@ Numbered consecutively starting at 01:
 8. Third-party dashboard steps (if external services are involved)
 9. Environment variables
 10. Test plan — **end-to-end only by default** (Cypress / Playwright); strategy diagram + pseudocode. Unit and integration plans are added only when the user explicitly asks.
-11. Claude permissions to add
+11. Commands that will ask first (merged into `permissions.ask`)
 12. Rollout & verification
 13. Risk & rollback
 14. Agent runbook (preflight commands, ordered execution diagram, commands cheat-sheet, definition-of-done, must-nots)

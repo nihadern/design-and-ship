@@ -5,11 +5,12 @@ description: Author a rich, mobile-responsive HTML design doc for a code change,
 
 # Design and Ship
 
-A three-phase workflow for non-trivial changes:
+A workflow for non-trivial changes:
 
 1. **Design** — author a self-contained HTML design doc with diagrams, pseudocode (not full source), the ask-gates (commands risky enough to confirm before running), and an agent runbook
-2. **Ship** — after user sign-off, merge the ask-gates into `~/.claude/settings.json → permissions.ask`, enter a git worktree, execute the doc
-3. **Recap** — append a "Roadblocks & deviations" section to the same doc, recording what actually happened
+2. **Annotate** — open the doc in the browser annotate loop so the user can click elements, leave annotations, and chat; apply each annotation as an edit and reply, looping until they end the session (see "Phase 1.5" below)
+3. **Ship** — after user sign-off, merge the ask-gates into `~/.claude/settings.json → permissions.ask`, enter a git worktree, execute the doc
+4. **Recap** — append a "Roadblocks & deviations" section to the same doc, recording what actually happened
 
 The reason for this shape: design docs that go stale during implementation are worse than no doc. By writing the recap into the same file, the doc stays accurate, the user gets a paper trail of decisions, and future work has a starting reference that matches reality.
 
@@ -103,6 +104,16 @@ Before you tell the user the doc is ready:
 2. **Sidebar ↔ sections 1:1.** Count `<a data-href="…">` entries in the sidebar and `<section id="…">` in main. Same count. Same IDs.
 3. **Every claim is verified.** Any file path, line number, API endpoint, env var name, error string, or version cited in the doc must be confirmed against the actual repo / live service before the doc lands — not pulled from memory. Use grep, read, curl. When something can't be verified, mark it as `(verify before relying)` rather than asserting it.
 4. **No long source blocks.** If a `<pre>` is over 20 lines and isn't a permissions JSON snippet or a shell preflight command block, it's probably real source — re-cast as pseudocode.
+5. **Diagrams actually render.** A Mermaid syntax error doesn't fail loudly — the page's loader swallows it and Mermaid draws a "Syntax error in text" graphic in place, so a broken diagram ships looking fine in source. You MUST render the doc in a real browser and confirm every diagram parses before telling the user it's ready. Run the bundled check:
+
+   ```bash
+   # pinned playwright reuses the cached chromium (no download)
+   cd <design-and-ship-skill-dir>
+   node -e "require.resolve('playwright')" 2>/dev/null || npm install --silent --no-save playwright@1.60.0
+   NODE_PATH="$(npm root)" node scripts/check_render.mjs <path-to-doc.html>
+   ```
+
+   It loads the doc headless, re-parses every `<pre class="mermaid">` with Mermaid, and prints `✅ all diagrams parse` or the exact `Parse error on line N` with the offending diagram. Fix and re-run until green. Common breakers it catches (all real, all silent in source): a `;` inside a sequence message (Mermaid reads it as a statement separator), parentheses in a `participant X as …` alias, and stray `[]`/`{}` in message text. Keep diagram labels plain ASCII.
 
 #### Tag balance check
 
@@ -186,6 +197,50 @@ This is the most important section. It's the part that lets a fresh agent execut
 - **17.3 Commands cheat-sheet** — a table mapping intent → exact command (use the repo's real `npm run …` scripts, not invented ones).
 - **17.4 Definition of done** — a `<ul class="checklist">` of objective checks (lint pass, test pass, grep returns empty, etc.). Each item must be verifiable, not opinion-based.
 - **17.5 Must-nots** — five-ish concrete things the agent should not do even if they'd be expedient (e.g., "don't commit `.env.local`", "don't disable email confirmation to make tests easier"). These come from anticipating shortcuts that would compromise the change.
+
+---
+
+## Phase 1.5 — Annotate & refine (before sign-off)
+
+Once the doc passes the pre-flight checks, do NOT jump straight to asking for approval. Open the doc in the bundled annotate loop so the user can review it visually, point at specific elements, and tell you what to change. This is an interactive review pass that runs against the same HTML file you just wrote.
+
+The tool lives in this skill at `annotate/` and has zero runtime dependencies (Node built-in `http` + `fs.watch`), so there is no install step. It serves the doc in a sandboxed iframe with an annotation SDK injected, renders a side panel chat, and ships annotations back to you over a blocking long-poll. See `annotate/README.md` for the full design.
+
+Let `SKILL_DIR` be this skill's directory (e.g. `~/.claude/skills/design-and-ship`) and `DOC` be the absolute path to the design doc.
+
+### The loop
+
+1. **Open it.** Spawn the server and launch the browser:
+
+   ```bash
+   node "$SKILL_DIR/annotate/cli.js" open "$DOC"
+   ```
+
+   It prints the local URL (loopback, default port 4388) and `xdg-open`s it. Tell the user: click any element or select text in the doc to attach an annotation, or type in the side panel chat. Their notes queue until you poll.
+
+2. **Wait for annotations.** Run the blocking poll. It long-polls until the user queues something, then prints the annotations as JSON on stdout (status lines go to stderr):
+
+   ```bash
+   node "$SKILL_DIR/annotate/cli.js" poll "$DOC"
+   ```
+
+   If the harness caps how long a single command may run, background it (`run_in_background`) and read its output when it returns, or use `--timeout-ms <n>` to poll in bounded slices. Each annotation carries `prompt` (what the user wants), `selector` (the CSS selector of the element), `tag`, `text` (the element's text), and for text selections a `target` range. A `tag: "message"` entry is a freeform chat message.
+
+3. **Apply each annotation.** Treat every annotation as an edit request. Edit the design doc HTML to make the change, AND propagate it to the underlying spec or plan the doc describes, so the doc and your intended implementation stay in sync. The file watcher live-reloads the user's browser as you save, so they see edits land in real time.
+
+4. **Confirm back.** After applying a batch, reply into the side panel chat so the user knows you acted:
+
+   ```bash
+   node "$SKILL_DIR/annotate/cli.js" poll "$DOC" --agent-reply "Updated the lede and tightened section 02. Anything else?"
+   ```
+
+   (`--agent-reply` posts the message, then resumes polling for the next round.)
+
+5. **Loop** steps 2 to 4 until the user ends the session (they click "End session" in the side panel, or you run `node "$SKILL_DIR/annotate/cli.js" end "$DOC"`). An ended poll returns `{"status":"ended"}`.
+
+6. **Re-run pre-flight.** Annotations may have changed section counts, diagrams, or tags. Re-run the tag-balance and diagram-render checks from Phase 1 before moving on.
+
+Only after the session ends do you ask for final sign-off and proceed to Phase 2. If the annotations expand scope beyond what the doc covers, say so and revise the doc rather than silently absorbing it. When you are done with the loop you can free the port with `node "$SKILL_DIR/annotate/cli.js" stop` (the server also self-stops after ~30 minutes idle).
 
 ---
 

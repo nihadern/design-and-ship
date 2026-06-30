@@ -11,16 +11,33 @@ The same file holds both. The doc never goes stale.
 
 ## What the skill does
 
-Four phases, executed by Claude when the skill triggers:
+Phases executed by Claude when the skill triggers:
 
 | Phase | What happens |
 |---|---|
 | 1. Design | Generates a self-contained, mobile-responsive HTML doc with Mermaid diagrams, a per-file pseudocode table, a predicted list of ask-gates (commands risky enough to confirm before running), and an agent runbook. |
+| 1.5 Annotate | Opens the doc in the browser annotate loop. The user clicks elements or selects text to leave annotations and chats in a side panel; Claude applies each annotation as an edit, replies to confirm, and loops until the user ends the session. Runs before sign-off. |
 | 2. Approve + apply | After user sign-off, merges the ask-gates array from the doc directly into `~/.claude/settings.json → permissions.ask`. |
 | 3. Worktree + execute | Calls `EnterWorktree` to isolate, then walks the runbook step by step. Keeps a deviation log as it goes. |
 | 4. Recap | Appends a "Roadblocks & deviations" section to the same HTML file (planned vs actual, surprises, doc patches). |
 
 The doc has a sticky sidebar TOC, light/dark theme with localStorage, scrollspy, and is readable on mobile. See `assets/template.html` for the shell.
+
+## The annotate loop
+
+`annotate/` is a self-contained, zero-dependency tool (Node built-in `http` + `fs.watch`) that lets the user review the generated doc visually and steer edits in real time. It is a from-scratch reimplementation of the Lavish review loop (kunchenguid/lavish-axi, MIT): the annotation SDK in `annotate/public/sdk.js` is vendored and adapted from Lavish, while the server, side panel, CLI, and styling are original and match this project's branding.
+
+How it works: a loopback server serves the doc inside a sandboxed iframe (`allow-scripts allow-forms allow-popups allow-downloads`, deliberately without `allow-same-origin`) with the SDK injected before `</body>`. The SDK captures element clicks and text selections, builds a CSS selector (up to 5 ancestors), and shows an annotation card in a shadow DOM. Annotations flow over `postMessage` to a side panel, which POSTs them to the server. Claude runs a blocking `poll` that long-polls and returns the annotations as JSON; Claude edits the doc, an `fs.watch` watcher pushes an SSE reload so the iframe live-updates, and `poll --agent-reply "..."` posts a chat reply back to the browser.
+
+```bash
+node annotate/cli.js open <doc.html>                       # serve + open in browser
+node annotate/cli.js poll <doc.html>                       # block until annotations arrive (JSON on stdout)
+node annotate/cli.js poll <doc.html> --agent-reply "text"  # push a chat reply, then poll
+node annotate/cli.js end <doc.html>                         # end the review session
+node annotate/cli.js stop                                   # shut the server down
+```
+
+Loopback only, default port 4388 (`DNS_ANNOTATE_PORT` to override), idle self-shutdown after ~30 minutes. See `annotate/README.md` for details.
 
 ## Install
 
@@ -46,9 +63,15 @@ Use whenever a change is large enough to warrant sign-off before code starts and
 
 ```
 design-and-ship/
-├── SKILL.md                  # The four-phase playbook Claude follows
+├── SKILL.md                  # The phased playbook Claude follows
 ├── assets/
 │   └── template.html         # Styled HTML shell with placeholders
+├── annotate/                 # Browser annotate loop (zero deps; SDK vendored from Lavish)
+│   ├── cli.js                # open / poll / end / stop commands
+│   ├── server.js             # loopback server, sandboxed iframe, fs.watch live reload, SSE
+│   ├── store.js              # JSON session store keyed by the canonical doc path
+│   ├── public/               # sdk.js (injected), chrome-client.js, chrome.css
+│   └── README.md
 └── references/
     └── sections.md           # Copy-paste examples for each required section
 ```

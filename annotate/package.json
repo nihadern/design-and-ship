@@ -1,0 +1,15 @@
+{
+  "name": "dns-annotate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Annotate-the-design-doc review loop for the design-and-ship skill. Vendored annotation SDK adapted from Lavish (kunchenguid/lavish-axi, MIT); thin local server, side panel, and CLI are original and match design-and-ship branding.",
+  "type": "module",
+  "bin": {
+    "dns-annotate": "cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "comment": "Zero runtime dependencies on purpose: the server uses Node built-in http + fs.watch, so the loop runs with no install step."
+}
